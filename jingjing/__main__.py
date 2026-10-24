@@ -74,7 +74,7 @@ def configure():
 def check():
     config = load_config(ROOT, require_api_key=False)
     print(f"Python：{sys.version.split()[0]}，{64 if sys.maxsize > 2**32 else 32} 位")
-    for package in ("httpx", "python-dotenv", "pywechat127", "pywinauto", "pywin32"):
+    for package in ("httpx", "python-dotenv", "pywechat127", "pywinauto", "pywin32", "rapidocr-onnxruntime", "onnxruntime"):
         try:
             print(f"依赖 {package}：{version(package)}")
         except PackageNotFoundError:
@@ -142,22 +142,66 @@ class InstanceLock:
             self.file.close()
 
 
-def run(dry_run=False):
+def _adapter(config, adapter_name):
+    if adapter_name == "ocr":
+        from .ocr_wechat import OcrWeChatAdapter
+        return OcrWeChatAdapter(config, ROOT)
     from .wechat import WeChatAdapter
+    return WeChatAdapter(config)
+
+
+def _poll(adapter):
+    events = adapter.poll()
+    for window in adapter.chats:
+        if getattr(getattr(window, "tracker", None), "rebaselined", False):
+            print(f"[已重新建立基线] {window.name}：未能确认新旧文字，本次跳过。请再新发一条短文字。")
+    return events
+
+
+def ocr_probe(watch=False):
+    """Read local screenshots only; never create a DeepSeek client."""
+    config = load_config(ROOT, require_api_key=False)
+    with InstanceLock():
+        adapter = _adapter(config, "ocr")
+        adapter.attach()
+        for window in adapter.chats:
+            print(f"[通过] {window.name}：已建立历史基线（{window.startup_count} 条可识别文字）。")
+        print("本地识别检查通过；没有调用 API，也没有发送消息。")
+        if watch:
+            print("请让对方新发一条短文字。只报告新消息数量，Ctrl+C 停止。")
+            while True:
+                for window, _ in _poll(adapter):
+                    print(f"[新文字] {window.name}：检测到 1 条。")
+                time.sleep(0.7)
+    return 0
+
+
+def run(dry_run=False, adapter_name="uia"):
     if sys.platform != "win32":
         raise ConfigError("当前微信接入需要 Windows 10/11 桌面。")
     config = load_config(ROOT)
+    if adapter_name == "ocr":
+        # Short plain text fits the calibrated composer and permits complete
+        # local OCR verification before the separate Enter action.
+        config = replace(config, max_output_chars=min(config.max_output_chars, 140),
+                         system_prompt=config.system_prompt + "\n当前通过文字识别接入微信。请用简短纯文字回答，尽量在80字以内，不使用Emoji、Markdown或特殊符号。")
     with InstanceLock(), DeepSeekClient(config) as client:
-        adapter = WeChatAdapter(config)
+        adapter = _adapter(config, adapter_name)
         adapter.attach()
         engine = BotEngine(config, client)
         print(f"已连接 {len(adapter.chats)} 个独立聊天窗口。启动前的历史消息不会触发回复。")
         print("预览模式：会调用 DeepSeek，仅在本终端显示结果。" if dry_run else "已启用微信回复。请保持桌面解锁、不要在这些窗口手动输入。")
         print("Ctrl+C 停止。群里可发 /鲸鲸 /帮助。")
+        if adapter_name == "ocr":
+            print("OCR 试验接入：保持浅色主题、窗口尺寸和消息底部位置；只处理可见的新文字。")
         while True:
-            for window, event in adapter.poll():
+            for window, event in _poll(adapter):
                 reply = engine.handle(event)
                 if reply:
+                    if adapter_name == "ocr":
+                        # Built-in command replies include a whale emoji. OCR
+                        # output uses the explicit text prefix instead.
+                        reply = reply.replace("🐳", "")[:140].strip()
                     if dry_run:
                         print(f"[预览] {window.name}\n{reply}")
                     else:
@@ -175,14 +219,24 @@ def main():
         ("api-test", "调用一次 DeepSeek，不连接微信"),
         ("chat", "在终端测试 DeepSeek 多轮聊天"),
         ("probe", "只检测微信控件，不发送消息"),
+        ("ocr-probe", "只检查本地屏幕识别，不调用 API、不发送消息"),
+        ("ocr-watch", "本地观察新文字数量，不调用 API、不发送消息"),
     ):
         sub.add_parser(command, help=help_text)
     listener = sub.add_parser("run", help="监听新文字消息并回复")
+    listener.add_argument("--adapter", choices=("uia", "ocr"), default="uia", help="接入方式；当前缺少微信控件时使用 ocr")
     listener.add_argument("--dry-run", action="store_true", help="调用 API 生成结果，只显示在终端")
+    calibration = sub.add_parser("ocr-setup", help="在本地截图中选择消息和空白输入区域")
+    calibration.add_argument("--chat", help="只校准名单中的一个完整备注或群名")
     args = parser.parse_args()
     try:
         if args.command == "run":
-            return run(args.dry_run)
+            return run(args.dry_run, args.adapter)
+        if args.command in ("ocr-probe", "ocr-watch"):
+            return ocr_probe(args.command == "ocr-watch")
+        if args.command == "ocr-setup":
+            from .ocr_setup import setup
+            return setup(load_config(ROOT, require_api_key=False), ROOT, args.chat)
         if args.command == "probe":
             from .wechat import probe
             return 0 if probe(load_config(ROOT, require_api_key=False)) else 2
@@ -195,7 +249,10 @@ def main():
         return 2
     except Exception as exc:
         from .wechat import WeChatError
-        if isinstance(exc, WeChatError):
+        from .ocr_wechat import OcrAdapterError
+        from .ocr_desktop import DesktopError
+        from .ocr_backend import OcrError
+        if isinstance(exc, (WeChatError, OcrAdapterError, DesktopError, OcrError)):
             print(f"[已停止] {exc}")
         else:
             # Avoid raw third-party exception strings containing private data.

@@ -2,7 +2,39 @@
 
 Windows 微信小号 + DeepSeek API，支持指定好友私聊与指定微信群的文字回复，运行在自己的电脑上，不需要服务器。
 
-当前准备状态：已建立独立 Python 环境，安装依赖并通过离线测试；尚未填写真实 API Key，也尚未在登录小号后验证收发。微信 4.x 的 UI 自动化取决于账号是否提供可访问控件，先通过 `probe` 检测，再实际测试收发。
+当前准备状态：Python 环境、DeepSeek 接口和两种桌面接入方式已准备。当前微信 4.1.15 账号缺少聊天 UIA 控件，因此增加了本地 OCR 试验接入，已在本机独立聊天窗口验证文字气泡读取。**尚未完成真实新消息到自动回复的收发验证。** Key、名单和窗口校准仅保存在本地，不提交 Git。
+
+## 当前账号：使用本地文字识别接入
+
+此账号无需重复运行原来的 `probe`。保持已打开的独立聊天窗口、浅色主题、原窗口尺寸，并停留在最新消息底部。输入框先清空；至少留一条完整文字气泡可见，供程序建立历史基线。
+
+本机当前目标已配置并校准。先检查本地识别：
+
+```powershell
+.\.venv\Scripts\python.exe -m jingjing ocr-probe
+```
+
+再预览回答：
+
+```powershell
+.\.venv\Scripts\python.exe -m jingjing run --adapter ocr --dry-run
+```
+
+启动后让目标好友先发“连接测试”，间隔 3 秒再发“你好”；群聊使用 `/鲸鲸 你好`。历史不会补回复；如果原有文字被图片/表情挤出可见范围，首条新文字用于重新建立基线，终端会提示再发一条。此命令将确认的新消息交给 DeepSeek，回答只显示在终端。需要先单独验证新消息识别时可运行 `ocr-watch`，它只报告检测数量，不调用 API、不发送消息。
+
+确认预览正常后，按 `Ctrl+C` 停止，再启动实际回复：
+
+```powershell
+.\.venv\Scripts\python.exe -m jingjing run --adapter ocr
+```
+
+也可运行 `powershell -NoProfile -ExecutionPolicy Bypass -File .\start-ocr.ps1 -DryRun` 预览，去掉 `-DryRun` 正式运行。
+
+新增好友/群或改变窗口尺寸后，先更新 `config.json`，双击打开对应独立聊天窗口，再运行 `ocr-setup`（可加 `--chat "完整备注或群名"`）。在本地截图上依次拖框选择消息区和空白文字输入区内部，排除标题、边框、工具栏和发送按钮。校准只保存坐标及背景色，不保存截图和正文。
+
+OCR 会漏字或误识别，图片样式也无法用像素规则完全区分。目前只支持普通浅色文字气泡和较短回复；OCR 模式将生成内容限制在 140 字内、单行输入。程序先检查输入框空白，再输入回答并重新识别核对，最后才按 Enter；识别不一致会留下草稿并停止，需手动查看，不自动清空或重发。视觉检查不能替代微信原生消息标识或送达回执。
+
+运行时不要滚动历史、切换聊天模式、覆盖窗口或手动输入。滚动旧历史和新消息上移可能呈现相同画面，无法可靠区分。不保证高流量下完整接收、区分同文同位置重复消息，或完整识别带文字的图片。
 
 ## 已准备的功能
 
@@ -139,4 +171,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-测试使用模拟 HTTP 和微信控件，不消耗 API，不访问真实微信。离线测试不能替代本机登录后的收发验证。第三方来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+测试使用模拟 HTTP、微信控件与合成图片，不消耗 API，不访问真实微信。离线测试不能替代本机登录后的收发验证。OCR 依赖固定在 `requirements-ocr.txt`；当前环境完整版本见 `requirements-lock.txt`。第三方来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -14,9 +14,27 @@ from unittest.mock import patch
 
 from jingjing import __main__ as cli
 from jingjing.config import ConfigError
+from jingjing.config import Config
 
 
 class CLITests(unittest.TestCase):
+    def test_ocr_probe_never_opens_api_and_does_not_print_message_text(self):
+        from types import SimpleNamespace
+        adapter = SimpleNamespace(
+            chats=[SimpleNamespace(name="测试好友", startup_count=1)],
+            attach=lambda: None,
+        )
+        output = io.StringIO()
+        with patch.object(cli, "load_config", return_value=Config(friends=("测试好友",))) as loader, \
+                patch.object(cli, "_adapter", return_value=adapter), \
+                patch.object(cli, "InstanceLock", return_value=contextlib.nullcontext()), \
+                patch.object(cli, "DeepSeekClient", side_effect=AssertionError("must not open API")), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(0, cli.ocr_probe())
+        loader.assert_called_once_with(cli.ROOT, require_api_key=False)
+        self.assertIn("没有调用 API", output.getvalue())
+        self.assertIn("测试好友", output.getvalue())
+
     def test_import_does_not_load_native_wechat_or_open_http_client(self):
         # A fresh interpreter catches import-time side effects that a reload in
         # the test process could hide. Neither a key nor an open desktop is needed.
