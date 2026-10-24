@@ -1,0 +1,11 @@
+{
+  "bot_name": "小鲸鱼",
+  "friends": [],
+  "groups": [],
+  "group_prefix": "/鲸鲸",
+  "cooldown_seconds": 2,
+  "max_history_turns": 10,
+  "max_input_chars": 4000,
+  "max_output_chars": 1000,
+  "timeout_seconds": 60
+}

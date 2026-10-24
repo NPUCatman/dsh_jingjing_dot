@@ -1,0 +1,3 @@
+-r requirements.txt
+# Fixed upstream source: newer Weixin 4.1.15 UI changes are absent from PyPI 1.9.8.
+pywechat127 @ https://codeload.github.com/Hello-Mr-Crab/pywechat/zip/8589baa049bb91d3a500602c167f07b2f8397a13#sha256=005f8db0ea0f37b937a2717c44f4412076c99565feba6328796b2dda97928f60&subdirectory=src
