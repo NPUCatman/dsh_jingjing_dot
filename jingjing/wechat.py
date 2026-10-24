@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import time
 
 from .engine import Event
+from .diagnostics import missing_window_message, native_snapshot
 
 
 REPLY_PREFIX = "🐳 小鲸鱼：\n"
@@ -57,15 +58,46 @@ def _id(item):
     return tuple(value)
 
 
+def _discover_windows(desktop):
+    """Try UIA classes first, then trusted process-owned native handles.
+
+    A Qt window with a missing accessibility provider is diagnostic evidence,
+    never sufficient evidence to enable sending or infer login state.
+    """
+    found = {"mmui::MainWindow": [], "mmui::ChatSingleWindow": [], "mmui::LoginWindow": []}
+    for class_name in found:
+        try:
+            found[class_name] = desktop.windows(class_name=class_name)
+        except Exception:
+            # Native process/window enumeration can still explain the failure.
+            continue
+    snapshot = None
+    if not any(found.values()):
+        snapshot = native_snapshot()
+        for native in snapshot.windows:
+            if native.pid not in snapshot.weixin_pids:
+                continue
+            try:
+                window = desktop.window(handle=native.handle)
+                class_name = window.class_name()
+                if class_name in found:
+                    found[class_name].append(window)
+            except Exception:
+                continue
+    return found["mmui::MainWindow"], found["mmui::ChatSingleWindow"], found["mmui::LoginWindow"], snapshot
+
+
 def probe(config):
     """Read only UI structure, never focus a window, read text, or send."""
     desktop = _controls()
-    main = desktop.windows(class_name="mmui::MainWindow")
-    separate = desktop.windows(class_name="mmui::ChatSingleWindow")
+    main, separate, login, snapshot = _discover_windows(desktop)
     if not main and not separate:
-        print("未发现已登录的微信 4.x 窗口。请登录小号，并让微信窗口保持打开。")
+        if login:
+            print("检测到微信 4.x 登录页面，请先在微信中完成登录，再运行 probe。")
+        else:
+            print(missing_window_message(snapshot))
         return False
-    print("已发现微信 4.x 窗口。本检测不会发送消息，也不会输出聊天内容。")
+    print("已发现可访问的微信 4.x 窗口。本检测不会发送消息，也不会输出聊天内容。")
     targets = [*config.friends, *config.groups]
     if not targets:
         print("尚未填写聊天名单。请先运行 configure，再双击名单中的会话打开独立窗口。")
@@ -98,10 +130,14 @@ class WeChatAdapter:
 
     def attach(self):
         desktop = _controls()
-        windows = desktop.windows(class_name="mmui::ChatSingleWindow")
         names = [(n, False) for n in self.config.friends] + [(n, True) for n in self.config.groups]
         if not names:
             raise WeChatError("聊天名单为空，请先运行 configure。")
+        main, windows, login, snapshot = _discover_windows(desktop)
+        if not main and not windows:
+            if login:
+                raise WeChatError("检测到微信 4.x 登录页面，请先完成登录。")
+            raise WeChatError(missing_window_message(snapshot))
         for name, is_group in names:
             matches = [w for w in windows if w.window_text() == name]
             if len(matches) != 1:

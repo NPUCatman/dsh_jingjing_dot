@@ -84,6 +84,9 @@ class FakeWindow:
     def window_text(self):
         return self.name
 
+    def class_name(self):
+        return "mmui::ChatSingleWindow"
+
     def exists(self, **kwargs):
         return self.open
 
@@ -96,7 +99,7 @@ class FakeDesktop:
         self._windows = windows
 
     def windows(self, **kwargs):
-        return self._windows
+        return [window for window in self._windows if window.class_name() == kwargs.get("class_name")]
 
     def window(self, **kwargs):
         return next(window for window in self._windows if window.handle == kwargs["handle"])
