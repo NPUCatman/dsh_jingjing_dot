@@ -1,0 +1,53 @@
+name: jingjing
+services:
+  astrbot:
+    image: soulter/astrbot:v4.29.3@sha256:c93a6d19507ba45474c3dfb82aad9d36eb432a478112f13c7e6325b5ebffc5f2
+    container_name: jingjing-astrbot
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?Configure the private deployment environment}
+      ASTRBOT_DASHBOARD_INITIAL_PASSWORD: ${ASTRBOT_DASHBOARD_INITIAL_PASSWORD:?Set a dashboard password}
+    ports:
+      - "127.0.0.1:6185:6185"
+    volumes:
+      - ./astrbot/data:/AstrBot/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  snowluma:
+    image: motricseven7/snowluma:v2.2.0@sha256:34b4ec03738a698231cbad39c5650747330f5a96d953494fb6c12e1273974c0b
+    container_name: jingjing-snowluma
+    restart: unless-stopped
+    shm_size: 1gb
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 1048576
+    environment:
+      TZ: Asia/Shanghai
+      SNOWLUMA_WEBUI_HOST: 0.0.0.0
+      SNOWLUMA_WEBUI_PORT: "5099"
+      SNOWLUMA_HOOK_AUTOLOAD: "1"
+      SNOWLUMA_TELEMETRY: "0"
+      SNOWLUMA_QQ_FLAGS: "--disable-gpu --disable-software-rasterizer --disable-gpu-compositing"
+      SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD: ${SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD:?Set a dashboard password}
+      VNC_PASSWD: ${VNC_PASSWD:?Set an eight character desktop password}
+    ports:
+      - "127.0.0.1:5099:5099"
+      - "127.0.0.1:6081:6081"
+    volumes:
+      - ./snowluma/data:/app/data
+      - ./snowluma/qq-config:/app/.config
+      - ./snowluma/qq-share:/app/.local/share
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

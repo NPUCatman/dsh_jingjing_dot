@@ -13,3 +13,6 @@ data/
 build/
 dist/
 *.egg-info/
+cloud/local.json
+cloud/credentials.local.json
+cloud/runtime/
